@@ -5,7 +5,7 @@ import { useState } from "react";
 
 export default function Home() {
   const router = useRouter();
-  const [workspaceId, setWorkspaceId] = useState("default");
+  const [workspaceId, setWorkspaceId] = useState("00000000-0000-0000-0000-000000000000");
 
   const enterWorkspace = () => {
     if (workspaceId.trim()) {
