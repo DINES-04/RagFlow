@@ -1,0 +1,45 @@
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
+# Bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+venv/
+.venv/
+ENV/
+env/
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+logs/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Cache files
+.cache/
+
+frontend/node_modules
