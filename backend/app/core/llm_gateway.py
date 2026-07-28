@@ -1,8 +1,5 @@
-"""
-LLM Gateway: single interface over multiple providers so the rest of the app
-never imports openai/anthropic/google SDKs directly. This is what makes model
-switching and routing (see docs/ARCHITECTURE.md §7) a config change.
-"""
+import httpx
+import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
@@ -48,11 +45,105 @@ class ClaudeProvider(LLMProvider):
 
 class GeminiProvider(LLMProvider):
     async def stream_chat(self, messages: list[dict], **kwargs) -> AsyncIterator[str]:
-        raise NotImplementedError("Wire up Gemini streaming here")
-        yield ""  # pragma: no cover
+        api_key = settings.GOOGLE_API_KEY
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY is not set in environment settings")
+
+        system_instruction_parts = []
+        contents = []
+        for m in messages:
+            role = m.get("role")
+            content = m.get("content", "")
+            if role == "system":
+                system_instruction_parts.append({"text": content})
+            else:
+                gemini_role = "model" if role == "assistant" else "user"
+                contents.append({
+                    "role": gemini_role,
+                    "parts": [{"text": content}]
+                })
+
+        payload = {
+            "contents": contents
+        }
+        if system_instruction_parts:
+            payload["systemInstruction"] = {"parts": system_instruction_parts}
+
+        model = "gemini-2.5-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={api_key}"
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", url, json=payload) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    raise RuntimeError(f"Gemini API error ({response.status_code}): {error_text.decode()}")
+
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while True:
+                        buffer = buffer.lstrip().lstrip("[").lstrip(",").lstrip()
+                        if not buffer:
+                            break
+                        brace_count = 0
+                        in_string = False
+                        escape = False
+                        end_index = -1
+                        for idx, char in enumerate(buffer):
+                            if char == '"' and not escape:
+                                in_string = not in_string
+                            elif char == '\\' and in_string:
+                                escape = not escape
+                                continue
+                            elif not in_string:
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        end_index = idx + 1
+                                        break
+                            escape = False
+
+                        if end_index != -1:
+                            obj_str = buffer[:end_index]
+                            buffer = buffer[end_index:]
+                            try:
+                                obj = json.loads(obj_str)
+                                text = obj["candidates"][0]["content"]["parts"][0]["text"]
+                                if text:
+                                    yield text
+                            except (json.JSONDecodeError, KeyError, IndexError):
+                                pass
+                        else:
+                            break
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        raise NotImplementedError("Wire up Gemini embeddings here")
+        api_key = settings.GOOGLE_API_KEY
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY is not set in environment settings")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key={api_key}"
+        requests = [
+            {
+                "model": "models/gemini-embedding-001",
+                "content": {"parts": [{"text": t}]},
+                "outputDimensionality": settings.EMBEDDING_DIM
+            }
+            for t in texts
+        ]
+        payload = {"requests": requests}
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, json=payload)
+            if response.status_code != 200:
+                raise RuntimeError(f"Gemini embedding API error ({response.status_code}): {response.text}")
+            
+            data = response.json()
+            embeddings = [emb["values"] for emb in data.get("embeddings", [])]
+            if len(embeddings) != len(texts):
+                raise RuntimeError(f"Expected {len(texts)} embeddings, got {len(embeddings)}")
+            return embeddings
 
 
 class OllamaProvider(LLMProvider):

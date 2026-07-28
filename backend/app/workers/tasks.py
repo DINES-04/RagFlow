@@ -11,7 +11,8 @@ def process_document_task(self, document_id: str):
     try:
         asyncio.run(process_document(uuid.UUID(document_id)))
     except Exception as exc:  # noqa: BLE001
-        # TODO: mark Document.status = failed with error message once DB layer is wired up
+        # The database state is updated to failed in process_document.
+        # We retry for temporary issues up to max_retries.
         raise self.retry(exc=exc, countdown=30)
 
 

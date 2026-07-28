@@ -13,6 +13,10 @@ class Base(DeclarativeBase):
     pass
 
 
+# Import models here to register them with DeclarativeBase metadata
+from app.models import tenancy, documents, chat
+
+
 async def get_db() -> AsyncSession:
     """FastAPI dependency. Yields a scoped async session per request."""
     async with AsyncSessionLocal() as session:
